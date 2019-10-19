@@ -1,0 +1,2 @@
+# PLastZ
+Parallel Lastz
