@@ -55,6 +55,16 @@ class FH :
 	def __str__(self) :
 		return "Query: {}\nTarget: {}\nOut directory: {}".format(self.query, self.target, self.outdir)
 
+def str_to_bool(v) :
+	if isinstance(v, bool):
+		return v
+	if v.lower() in ('yes', 'true', 't', 'y', '1'):
+		return True
+	elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+		return False
+	else:
+		raise argparse.ArgumentTypeError('Boolean value expected.')
+
 def parseArgs() :
 	parser = argparse.ArgumentParser(description='Parallel LastZ of a query against a target (can handle self).')
 	parser.add_argument('Query',nargs=1,type=str,help="A fasta file containing the target sequences")
@@ -62,6 +72,7 @@ def parseArgs() :
 	parser.add_argument('Output',nargs=1,type=str,help="A directory path")
 	parser.add_argument('--lastz-options','-lo',nargs=1,type=str,default=[None],required=False,help="A list of arguments e.g.: \"--strand=plus --noxtrim\"")
 	parser.add_argument('--processes','-p',nargs=1,type=int,default=[4],required=False,help="Maximum threads to use. Default: 4.")
+	parser.add_argument('--keep-temp', '-kp',type=str_to_bool, nargs='?', const=True, default=False, help="Keep temporary files (single alignments and single fasta). Unset by default.")
 	return parser.parse_args()
 
 def create_jobs(query, target, tmpdir, lastz_options) :
@@ -95,7 +106,13 @@ def create_jobs(query, target, tmpdir, lastz_options) :
 				extracted_sequences.append(tgt)
 
 			tmpfile = os.path.join(tmpdir, "{}_V_{}.TMP".format(qry, tgt))
-			cmd = "lastz {} {} {} > {}".format(qry, tgt, lastz_options, tmpfile)
+			qrypath = os.path.join(tmpdir, qry + ".fa")
+			tgtpath = os.path.join(tmpdir, tgt + ".fa")
+			cmd = ""
+			if lastz_options != None :
+				cmd = "lastz {} {} {} > {}".format(qrypath, tgtpath, lastz_options, tmpfile)
+			else :
+				cmd = "lastz {} {} > {}".format(qrypath, tgtpath, tmpfile)
 			align_job_list.append(cmd)
 
 	return extract_job_list, align_job_list
@@ -116,12 +133,21 @@ def main() :
 	out = args.Output[0]
 	lastz_options = args.lastz_options[0] # LastZ options
 	proc = args.processes[0]
+	keep_temp = args.keep_temp
 	iFH = FH(query, target, out) # File Handler
+	print("Prepping files...")
 	extract_job_list, align_job_list = create_jobs(iFH.query, iFH.target, iFH.tmpdir, lastz_options)
+	print("Extracting queries and targets sequences...")
 	job_runner(extract_job_list, proc)
+	print("Aligning sequences...")
 	job_runner(align_job_list, proc)
+	print("Concatenate alignments...")
 	run("cat {}/*.TMP > {}/plastz.out".format(iFH.tmpdir, iFH.outdir))
-	#iFH.remove_tmp()
+	if not keep_temp :
+		iFH.remove_tmp()
+
+	print("Done")
+	sys.exit(0)
 
 if __name__ == '__main__':
 	main()
